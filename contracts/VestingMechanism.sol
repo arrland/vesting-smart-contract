@@ -9,8 +9,8 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "./MerkleTree.sol";
 import "./KYCVerification.sol";
 
-error Unauthorized();
-error InvalidAddress();
+
+
 error NoVestingSchedule();
 error TokenAddressZero();
 error InvalidProof();
@@ -61,12 +61,20 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
      * @param vestingMerkleRoot The merkle root for vesting schedules.
      * @param _vestingStartTime The TGE start timestamp.
      */
-    constructor(address adminAddress, address tokenAddress, bytes32 vestingMerkleRoot, uint256 _vestingStartTime) MerkleTree(vestingMerkleRoot) {
+    constructor(
+        address adminAddress,
+        address tokenAddress,
+        bytes32 vestingMerkleRoot,
+        uint256 _vestingStartTime
+    )
+        MerkleTree(vestingMerkleRoot)
+        KYCVerification(adminAddress)
+    {
         if (tokenAddress == address(0)) revert TokenAddressZero();
         _token = IERC20(tokenAddress);
-        vestingStartTime = _vestingStartTime;
-        _setupRole(DEFAULT_ADMIN_ROLE, adminAddress);
-        _setupRole(VESTING_ADMIN_ROLE, adminAddress);
+        vestingStartTime = _vestingStartTime;     
+        _grantRole(DEFAULT_ADMIN_ROLE, adminAddress);   
+        _grantRole(VESTING_ADMIN_ROLE, adminAddress);
     }
 
     struct ReleaseParams {
@@ -243,7 +251,7 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
      * @dev Allows changing the vesting start timestamp. Can only be called by an admin.
      * @param newVestingStartTime The new vesting start timestamp.
      */
-    function setTgeStartTimestamp(uint256 newVestingStartTime) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setTgeStartTimestamp(uint256 newVestingStartTime) external onlyRole(VESTING_ADMIN_ROLE) {
         if (newVestingStartTime <= 0) revert TGEStartTimestampMustBePositive();
         vestingStartTime = newVestingStartTime;        
     }

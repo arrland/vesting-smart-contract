@@ -12,6 +12,57 @@ The Vesting Smart Contract is designed to manage the vesting of tokens in a secu
 - **Schedule Transferability**: Facilitates the transfer of existing vesting schedules to new beneficiaries, allowing for flexibility in token distribution and ownership.
 - **Integration with MerkleTree and KYCVerification**: Seamlessly works in conjunction with `MerkleTree.sol` for secure schedule verification and `KYCVerification.sol` for regulatory compliance, enhancing the contract's functionality and security.
 
+### VestingMechanism.sol, MerkleTree.sol, and KYCVerification.sol: Role Management Documentation
+
+#### Overview
+The smart contracts VestingMechanism, MerkleTree, and KYCVerification utilize the AccessControl mechanism provided by OpenZeppelin to manage roles and permissions within the system. This document outlines the roles defined in these contracts and their responsibilities.
+
+### VestingMechanism.sol
+
+#### Roles
+- **DEFAULT_ADMIN_ROLE**: This is a default role that comes with the OpenZeppelin AccessControl implementation. It has the permissions to grant and revoke any roles.
+- **VESTING_ADMIN_ROLE**: This role is responsible for administrative tasks within the VestingMechanism contract, such as setting the TGE (Token Generation Event) start timestamp.
+
+#### Responsibilities
+- **DEFAULT_ADMIN_ROLE**:
+  - Grant or revoke any roles, including VESTING_ADMIN_ROLE.
+  - Update the Merkle root for vesting schedules via the MerkleTree contract functionality.
+  - Toggle the KYC requirement and manage KYC verifiers in the KYCVerification contract.
+- **VESTING_ADMIN_ROLE**:
+  - Set the TGE start timestamp.
+  - This role is crucial for adjusting the vesting schedule's start time, ensuring flexibility in managing the vesting process.
+
+### MerkleTree.sol
+
+#### Roles
+- **DEFAULT_ADMIN_ROLE**: Inherits the same responsibilities as described in `VestingMechanism.sol`.
+
+#### Responsibilities
+- **DEFAULT_ADMIN_ROLE**:
+  - Update the Merkle root for vesting schedules.
+  - This role ensures that the vesting schedules can be updated to reflect any changes or corrections in the distribution plan.
+
+### KYCVerification.sol
+
+#### Roles
+- **DEFAULT_ADMIN_ROLE**: Inherits the same responsibilities as described in `VestingMechanism.sol`.
+- **KYC_VERIFIER_ROLE**: This role is responsible for managing KYC verification statuses of addresses.
+- **KYC_ADMIN_ROLE**: This role is responsible for managing KYC verifiers and toggling the KYC requirement for the system.
+
+#### Responsibilities
+- **DEFAULT_ADMIN_ROLE**:
+  - Grant or revoke KYC_VERIFIER_ROLE and KYC_ADMIN_ROLE.
+- **KYC_VERIFIER_ROLE**:
+  - Set the KYC verification status of addresses.
+  - This role is essential for updating the KYC status of participants, ensuring that only verified users can participate in certain actions within the system.
+- **KYC_ADMIN_ROLE**:
+  - Toggle the requirement of KYC verification for claiming vested tokens.
+  - Grant or revoke KYC_VERIFIER_ROLE.
+  - This role allows for the adjustment of the KYC policy according to regulatory requirements or project policies.
+
+### Summary
+The role management in these contracts ensures a flexible and secure system for managing vesting schedules, KYC verification, and administrative tasks. The separation of concerns among different roles allows for a decentralized approach to managing critical aspects of the token distribution and compliance processes.
+
 The `release` function in the `VestingMechanism.sol` smart contract plays a crucial role in managing the release of vested tokens to beneficiaries. Here's a step-by-step breakdown of how it works:
 
 1. **Beneficiary Verification**: The function first ensures that the caller of the function is the intended beneficiary of the vested tokens. This is crucial for security and to prevent unauthorized access to the tokens.

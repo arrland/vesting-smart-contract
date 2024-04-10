@@ -71,8 +71,7 @@ describe("VestingMechanism", function () {
     it("Should return correct vesting details one second before vesting ends", async function () {
       const vestingParams = await getVestingParamsFromAddress(addr1.address);
       let details = await vestingMechanism.getVestingDetails(vestingParams);
-      // Assume vesting duration is set and calculate end time
-      console.log(`One second before vesting ends: ${details.vestingEnd}`);
+      // Assume vesting duration is set and calculate end time      
       const oneSecondBeforeEnd = Number(details.vestingEnd) - 2;
       
       // Advance time to one second before vesting ends
@@ -251,7 +250,7 @@ describe("VestingMechanism", function () {
     it("Should not allow changing the vesting start time by unauthorized user", async function () {
       const newVestingStartTime = (await getNextDayTimestamp()) + 86400; // One more day into the future
       await expect(vestingMechanism.connect(addr1).setTgeStartTimestamp(newVestingStartTime))
-      .to.be.revertedWith("AccessControl: account " + addr1.address.toLowerCase() + " is missing role 0x0000000000000000000000000000000000000000000000000000000000000000");
+      .to.be.revertedWith("AccessControl: account " + addr1.address.toLowerCase() + " is missing role 0xa8f45af456ec169d21f52f0673e869f84c82a5ecdb557cd556f1159a748bfb06");
     });
 
     it("Should transfer vesting ownership successfully", async function () {
@@ -564,6 +563,66 @@ describe("VestingMechanism", function () {
     });
   });
 
+  describe("Role Management", function () {
+    let kycAdmin, otherAccount;
+
+    beforeEach(async function () {
+      [, , kycAdmin, otherAccount] = await ethers.getSigners();
+      // Assuming the deployVestingMechanism function already sets the deployer as the default admin
+      // Grant KYC_ADMIN_ROLE to kycAdmin
+      const KYC_ADMIN_ROLE = await vestingMechanism.KYC_ADMIN_ROLE();
+      await vestingMechanism.grantRole(KYC_ADMIN_ROLE, kycAdmin.address);
+    });
+
+    it("Should allow granting KYC_ADMIN_ROLE and KYC_VERIFIER_ROLE by KYC_ADMIN after revoking DEFAULT_ADMIN_ROLE from owner", async function () {
+      const KYC_ADMIN_ROLE = await vestingMechanism.KYC_ADMIN_ROLE();
+      const KYC_VERIFIER_ROLE = await vestingMechanism.KYC_VERIFIER_ROLE();
+      const DEFAULT_ADMIN_ROLE = await vestingMechanism.DEFAULT_ADMIN_ROLE();
+
+      // Revoke DEFAULT_ADMIN_ROLE from owner to simulate loss of super admin privileges
+      await vestingMechanism.revokeRole(DEFAULT_ADMIN_ROLE, owner.address);
+
+      // KYC Admin grants KYC_ADMIN_ROLE to another account
+      await expect(vestingMechanism.connect(kycAdmin).grantRole(KYC_ADMIN_ROLE, otherAccount.address))
+        .to.emit(vestingMechanism, "RoleGranted")
+        .withArgs(KYC_ADMIN_ROLE, otherAccount.address, kycAdmin.address);
+
+      // KYC Admin grants KYC_VERIFIER_ROLE to another account
+      await expect(vestingMechanism.connect(kycAdmin).grantRole(KYC_VERIFIER_ROLE, otherAccount.address))
+        .to.emit(vestingMechanism, "RoleGranted")
+        .withArgs(KYC_VERIFIER_ROLE, otherAccount.address, kycAdmin.address);
+    });
+
+    it("KYC Admin should have KYC_ADMIN_ROLE", async function () {
+      const KYC_ADMIN_ROLE = await vestingMechanism.KYC_ADMIN_ROLE();
+      expect(await vestingMechanism.hasRole(KYC_ADMIN_ROLE, kycAdmin.address)).to.be.true;
+    });
+
+    it("KYC Admin should be able to grant KYC_VERIFIER_ROLE", async function () {
+      const KYC_VERIFIER_ROLE = await vestingMechanism.KYC_VERIFIER_ROLE();
+      // KYC Admin grants KYC_VERIFIER_ROLE to otherAccount
+      await vestingMechanism.connect(kycAdmin).grantRole(KYC_VERIFIER_ROLE, otherAccount.address);
+      expect(await vestingMechanism.hasRole(KYC_VERIFIER_ROLE, otherAccount.address)).to.be.true;
+    });
+
+    it("Non-KYC Admin should not be able to grant KYC_VERIFIER_ROLE", async function () {
+      const KYC_VERIFIER_ROLE = await vestingMechanism.KYC_VERIFIER_ROLE();
+      const KYC_ADMIN_ROLE = await vestingMechanism.KYC_ADMIN_ROLE();
+      // Attempt by otherAccount (not a KYC Admin) to grant KYC_VERIFIER_ROLE should fail
+      await expect(vestingMechanism.connect(otherAccount).grantRole(KYC_VERIFIER_ROLE, kycAdmin.address))
+        .to.be.revertedWith("AccessControl: account " + otherAccount.address.toLowerCase() + " is missing role " + KYC_ADMIN_ROLE);
+    });
+
+    it("KYC Admin should be able to revoke KYC_VERIFIER_ROLE", async function () {
+      const KYC_VERIFIER_ROLE = await vestingMechanism.KYC_VERIFIER_ROLE();
+      // First, grant KYC_VERIFIER_ROLE to otherAccount
+      await vestingMechanism.connect(kycAdmin).grantRole(KYC_VERIFIER_ROLE, otherAccount.address);
+      // Then, revoke KYC_VERIFIER_ROLE from otherAccount
+      await vestingMechanism.connect(kycAdmin).revokeRole(KYC_VERIFIER_ROLE, otherAccount.address);
+      expect(await vestingMechanism.hasRole(KYC_VERIFIER_ROLE, otherAccount.address)).to.be.false;
+    });
+  });
+
   async function getVestingParamsFromAddress(address) {
     const vestingEntry = vestingEntries.find(entry => entry.beneficiary === address);
     if (!vestingEntry) {
@@ -621,9 +680,8 @@ describe("VestingMechanism", function () {
 
   // Helper functions
   async function deployRumToken() {
-    const RumToken = await ethers.getContractFactory("RumToken");
+    const RumToken = await ethers.getContractFactory("DumyToken");
     const rumToken = await RumToken.deploy(ethers.parseEther("1000000000000"));
-    await rumToken.toggleAntibot();
     return rumToken;
   }
 

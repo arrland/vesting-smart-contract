@@ -22,8 +22,7 @@ contract MerkleTree is AccessControl {
      * @param _vestingMerkleRoot The merkle root of the vesting schedule.
      */
     constructor(bytes32 _vestingMerkleRoot) {
-        vestingMerkleRoot = _vestingMerkleRoot;
-        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        vestingMerkleRoot = _vestingMerkleRoot;        
     }
 
     /**
@@ -41,9 +40,8 @@ contract MerkleTree is AccessControl {
      * @param _leaf The leaf node to verify (address and amount hashed together).
      * @return bool indicating if the proof is valid.
      */
-    function verifyProof(bytes32[] calldata _proof, bytes32 _leaf) internal view returns (bool) {
-        
-        
+    function verifyProof(bytes32[] calldata _proof, bytes32 _leaf) internal view returns (bool) {        
         return MerkleProof.verify(_proof, vestingMerkleRoot, _leaf);
     }
 }
+
