@@ -22,6 +22,7 @@ error CallerHasNoVestingSchedule();
 error NewBeneficiaryAlreadyHasVestingSchedule();
 error BeneficiaryNotKYCVerified();
 error AllTokensWereClaimed();
+error VestingStartTimeCanOnlyBeChangedBeforeItStarts();
 
 /**
  * @title VestingMechanism
@@ -249,10 +250,12 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
 
     /**
      * @dev Allows changing the vesting start timestamp. Can only be called by an admin.
+     * This operation is only allowed if the current time is before the existing vesting start time.
      * @param newVestingStartTime The new vesting start timestamp.
      */
     function setTgeStartTimestamp(uint256 newVestingStartTime) external onlyRole(VESTING_ADMIN_ROLE) {
         if (newVestingStartTime <= 0) revert TGEStartTimestampMustBePositive();
+        if (block.timestamp > vestingStartTime) revert VestingStartTimeCanOnlyBeChangedBeforeItStarts();
         vestingStartTime = newVestingStartTime;        
     }
 

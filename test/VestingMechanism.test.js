@@ -213,6 +213,20 @@ describe("VestingMechanism", function () {
     });
   });
 
+  describe("setTgeStartTimestamp", function () {
+    it("Should revert if trying to change the vesting start time after it has started", async function () {
+      // Advance time to after the initial vesting start time
+      await advanceTimeByOneDay();
+
+      newVestingStartTime = (await ethers.provider.getBlock('latest')).timestamp + 300; // New future timestamp
+
+      // Attempt to change the vesting start time after it has already started
+      await expect(vestingMechanism.setTgeStartTimestamp(newVestingStartTime))
+        .to.be.revertedWithCustomError(vestingMechanism, "VestingStartTimeCanOnlyBeChangedBeforeItStarts");
+    });
+
+  });
+
   describe("Vesting Schedule:", function () {
 
     it("Should not allow token release before vesting start time", async function () {
