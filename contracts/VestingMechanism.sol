@@ -55,6 +55,7 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
     event TokensReleased(address indexed beneficiary, uint256 amount, uint256 timestamp);
     event VestingRevoked(address indexed beneficiary);
     event VestingOwnershipTransferred(address indexed previousBeneficiary, address indexed newBeneficiary);
+    event VestingScheduleCreated(address indexed beneficiary, uint256 totalAmount, uint256 cliffDuration, uint256 vestingDuration, uint256 initialReleasePercentage, uint256 vestingIntervalSeconds);
 
     /**
      * @dev Sets the token that will be vested, initializes roles, and sets the TGE start timestamp.
@@ -100,6 +101,7 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
         }
         
         VestingSchedule storage schedule = _vestingSchedules[params.beneficiary];
+        bool vestingCreated = false;
         // Check if the vesting schedule exists or needs to be created
         if (schedule.totalAmount == 0) {
             // Attempt to create a new vesting schedule if it does not exist
@@ -112,10 +114,15 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
             schedule.cliffDuration = params.delayInSeconds;
             schedule.vestingDuration = params.vestingPeriodDays * 86400; // Convert days to seconds
             schedule.initialReleasePercentage = params.tgePercent;      
-            schedule.vestingIntervalSeconds = params.vestingPeriodDurationInSeconds;      
-        }
+            schedule.vestingIntervalSeconds = params.vestingPeriodDurationInSeconds;     
+            vestingCreated = true;            
+            emit VestingScheduleCreated(params.beneficiary, params.totalAmount, params.delayInSeconds, params.vestingPeriodDays * 86400, params.tgePercent, params.vestingPeriodDurationInSeconds);
+        }        
         uint256 amountClaimable = _releasableAmount(schedule); 
         uint256 nextEligibleReleaseTime = _calculateNextEligibleReleaseTime(amountClaimable, schedule.lastReleaseTime, schedule.cliffDuration, schedule.vestingIntervalSeconds);
+        if (vestingCreated && amountClaimable == 0 && block.timestamp < vestingStartTime + schedule.cliffDuration) {                        
+            return;
+        }
         if (block.timestamp < nextEligibleReleaseTime) revert ReleaseTimeNotReached();
         if (amountClaimable == 0) revert NoTokensDue();
 

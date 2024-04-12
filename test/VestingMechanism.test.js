@@ -108,6 +108,41 @@ describe("VestingMechanism", function () {
       expect(details.isClaimable).to.equal(true);
 
     });
+    it("Should allow creating a vesting schedule for addr4 even if vesting has not started and emit VestingScheduleCreated", async function () {
+      const vestingStartTime = await vestingMechanism.vestingStartTime();
+      const currentBlock = await ethers.provider.getBlock('latest');
+      const currentTime = currentBlock.timestamp;
+      expect(currentTime).to.be.lessThan(vestingStartTime, "Vesting should not have started yet");
+
+      const vestingParams = await getVestingParamsFromAddress(addr4.address);
+      
+      const transaction = await vestingMechanism.connect(addr4).release(
+        {
+          beneficiary: vestingParams.beneficiary,
+          totalAmount: vestingParams.totalAmount,
+          delayInSeconds: vestingParams.delayInSeconds,
+          tgePercent: vestingParams.tgePercent,
+          vestingPeriodDays: vestingParams.vestingPeriodDays,
+          vestingPeriodDurationInSeconds: vestingParams.vestingPeriodDurationInSeconds
+        },
+        proofs[addr4.address]
+      );
+      await expect(transaction).not.to.emit(vestingMechanism, "TokensReleased");
+      await expect(transaction).to.emit(vestingMechanism, "VestingScheduleCreated").withArgs(
+        vestingParams.beneficiary,
+        vestingParams.totalAmount,
+        vestingParams.delayInSeconds,
+        vestingParams.vestingPeriodDays * 86400,
+        vestingParams.tgePercent,
+        vestingParams.vestingPeriodDurationInSeconds
+      );
+
+      const vestingDetails = await vestingMechanism.getVestingDetails(vestingParams);
+      expect(vestingDetails.hasVestingSchedule).to.equal(true, "Vesting schedule should be created");
+      expect(vestingDetails.amountClaimable).to.equal(0, "No amount should be claimable before vesting starts");
+      expect(vestingDetails.isClaimable).to.equal(false, "Should not be claimable before vesting starts");
+    });
+
 
     it("Should calculate nextReleaseTime correctly when vesting has a cliff and initlal", async function () {
       const vestingParams = await getVestingParamsFromAddress(addr5.address);
@@ -231,6 +266,9 @@ describe("VestingMechanism", function () {
 
     it("Should not allow token release before vesting start time", async function () {
       const vestingParams = await getVestingParamsFromAddress(addr3.address);
+      // create vesting schedule first
+      const transaction = await vestingMechanism.connect(addr3).release(vestingParams, proofs[addr3.address]);       
+      await expect(transaction).not.to.emit(vestingMechanism, "TokensReleased");
       // Assuming vestingStartTime is in the future
       await expect(vestingMechanism.connect(addr3).release(vestingParams, proofs[addr3.address]))
           .to.be.revertedWithCustomError(vestingMechanism, "ReleaseTimeNotReached");
@@ -291,8 +329,11 @@ describe("VestingMechanism", function () {
     it("Should correctly adjust vesting calculations after changing TGE start timestamp", async function () {
       const newVestingStartTime = (await getNextDayTimestamp()) + 86400 * 30; // 30 days into the future
       await vestingMechanism.connect(owner).setTgeStartTimestamp(newVestingStartTime);
-  
+      // create vesting schedule first
       const vestingParams = await getVestingParamsFromAddress(addr3.address);
+      const transaction = await vestingMechanism.connect(addr3).release(vestingParams, proofs[addr3.address]);
+      await expect(transaction).not.to.emit(vestingMechanism, "TokensReleased");
+      
       await expect(vestingMechanism.connect(addr3).release(vestingParams, proofs[addr3.address]))
           .to.be.revertedWithCustomError(vestingMechanism, "ReleaseTimeNotReached");
     });
@@ -300,10 +341,17 @@ describe("VestingMechanism", function () {
     it("Should correctly release initial tokens based on TGE percent", async function () {
       const vestingParams = await getVestingParamsFromAddress(addr1.address);
       await advanceTimeByOneDay();
-      await vestingMechanism.connect(addr1).release(vestingParams, proofs[addr1.address]);      
+      const transaction = await vestingMechanism.connect(addr1).release(vestingParams, proofs[addr1.address]);      
       const actualReleased = await rumToken.balanceOf(addr1.address);
-  
       expect(parseFloatEther(actualReleased)).to.equal("500.00");
+      await expect(transaction).to.emit(vestingMechanism, "VestingScheduleCreated").withArgs(
+        vestingParams.beneficiary,
+        vestingParams.totalAmount,
+        vestingParams.delayInSeconds,
+        vestingParams.vestingPeriodDays * 86400,
+        vestingParams.tgePercent,
+        vestingParams.vestingPeriodDurationInSeconds
+      );
     });
 
     it("Should release tokens according to vesting duration and interval", async function () {
@@ -440,6 +488,9 @@ describe("VestingMechanism", function () {
       const vestingParams = await getVestingParamsFromAddress(addr4.address);
       await advanceTimeByOneDay();
       const thirtyDaysInSeconds = 30 * 24 * 60 * 60;
+      // create vesting schedule first
+      const transaction = await vestingMechanism.connect(addr4).release(vestingParams, proofs[addr4.address]);
+      await expect(transaction).not.to.emit(vestingMechanism, "TokensReleased");
       // Attempt to release tokens during the cliff period should fail
       await expect(vestingMechanism.connect(addr4).release(vestingParams, proofs[addr4.address]))
         .to.be.revertedWithCustomError(vestingMechanism, "ReleaseTimeNotReached");
