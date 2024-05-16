@@ -23,6 +23,8 @@ error NewBeneficiaryAlreadyHasVestingSchedule();
 error BeneficiaryNotKYCVerified();
 error AllTokensWereClaimed();
 error VestingStartTimeCanOnlyBeChangedBeforeItStarts();
+error InitialClaimTimeCanOnlyBeChangedBeforeItStarts();
+error InitialClaimTimeMustBePositive();
 
 /**
  * @title VestingMechanism
@@ -51,6 +53,7 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
 
     // TGE start timestamp
     uint256 public vestingStartTime;
+    uint256 public initialClaimTime;
 
     event TokensReleased(address indexed beneficiary, uint256 amount, uint256 timestamp);
     event VestingRevoked(address indexed beneficiary);
@@ -67,14 +70,16 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
         address adminAddress,
         address tokenAddress,
         bytes32 vestingMerkleRoot,
-        uint256 _vestingStartTime
+        uint256 _vestingStartTime,
+        uint256 _initialClaimTime
     )
         MerkleTree(vestingMerkleRoot)
         KYCVerification(adminAddress)
     {
         if (tokenAddress == address(0)) revert TokenAddressZero();
         _token = IERC20(tokenAddress);
-        vestingStartTime = _vestingStartTime;     
+        vestingStartTime = _vestingStartTime;   
+        initialClaimTime = _initialClaimTime;  
         _grantRole(DEFAULT_ADMIN_ROLE, adminAddress);   
         _grantRole(VESTING_ADMIN_ROLE, adminAddress);
     }
@@ -99,6 +104,8 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
         if (kycRequired) {
             if (!isKYCVerified(params.beneficiary)) revert BeneficiaryNotKYCVerified();
         }
+
+        if (block.timestamp < initialClaimTime) revert ReleaseTimeNotReached();
         
         VestingSchedule storage schedule = _vestingSchedules[params.beneficiary];
         bool vestingCreated = false;
@@ -264,6 +271,17 @@ contract VestingMechanism is AccessControl, ReentrancyGuard, MerkleTree, KYCVeri
         if (newVestingStartTime <= 0) revert TGEStartTimestampMustBePositive();
         if (block.timestamp > vestingStartTime) revert VestingStartTimeCanOnlyBeChangedBeforeItStarts();
         vestingStartTime = newVestingStartTime;        
+    }
+
+    /**
+     * @dev Sets the initial claim time for the vesting mechanism.
+     * Can only be called by an admin and only if the current time is before the initial claim time.
+     * @param newInitialClaimTime The new initial claim time as a timestamp.
+     */
+    function setInitialClaimTime(uint256 newInitialClaimTime) external onlyRole(VESTING_ADMIN_ROLE) {
+        if (newInitialClaimTime <= 0) revert InitialClaimTimeMustBePositive();
+        if (block.timestamp >= vestingStartTime) revert InitialClaimTimeCanOnlyBeChangedBeforeItStarts();
+        initialClaimTime = newInitialClaimTime;
     }
 
     /**

@@ -7,13 +7,13 @@ function parseFloatEther(amount, precision = 2) {
 }
 
 describe("VestingMechanism", function () {  
-  let vestingMechanism, owner, addr1, addr2, addr3, addr4, addr5, rumToken, vestingEntries, proofs, vestingMerkleRoot, vestingStartTime;
+  let vestingMechanism, owner, addr1, addr2, addr3, addr4, addr5, addr6, rumToken, vestingEntries, proofs, vestingMerkleRoot, vestingStartTime, initialClaimTime;
 
   beforeEach(async function () {
-    [owner, addr1, addr2, addr3, addr4, addr5] = await ethers.getSigners();
+    [owner, addr1, addr2, addr3, addr4, addr5, addr6] = await ethers.getSigners();
     rumToken = await deployRumToken();
     rumToken.address = await rumToken.getAddress();    
-    vestingEntries = prepareVestingEntries(owner, addr1, addr2, addr3, addr4, addr5);
+    vestingEntries = prepareVestingEntries(owner, addr1, addr2, addr3, addr4, addr5, addr6);
     ({ proofs, root: vestingMerkleRoot } = generateMerkleTree(vestingEntries));
 
     const merkleTreeResult  = generateMerkleTree(vestingEntries);
@@ -21,7 +21,8 @@ describe("VestingMechanism", function () {
     vestingMerkleRoot = merkleTreeResult.root;
     
     vestingStartTime = await getNextDayTimestamp();
-    vestingMechanism = await deployVestingMechanism(owner.address, rumToken.address, vestingMerkleRoot, vestingStartTime);
+    initialClaimTime = vestingStartTime-3600*24; // 1 hour after vesting starts
+    vestingMechanism = await deployVestingMechanism(owner.address, rumToken.address, vestingMerkleRoot, vestingStartTime, initialClaimTime);
     vestingMechanism.address = await vestingMechanism.getAddress();    
     await rumToken.transfer(vestingMechanism.address, ethers.parseEther("500000"));
   });
@@ -262,7 +263,83 @@ describe("VestingMechanism", function () {
 
   });
 
+  describe("setInitialClaimTime", function () {
+    it("Should allow setting initial claim time before vesting starts", async function () {
+      const newInitialClaimTime = vestingStartTime - 3600; // 1 hour before vesting starts
+      await vestingMechanism.connect(owner).setInitialClaimTime(newInitialClaimTime);        
+      expect(await vestingMechanism.initialClaimTime()).to.equal(newInitialClaimTime);
+    });
+
+    it("Should revert if trying to set initial claim time after vesting has started", async function () {
+      // Advance blockchain time to after the vesting start time
+      await advanceTimeTo(vestingStartTime + 1); // Ensure time is past the vesting start time
+    
+      const newInitialClaimTime = vestingStartTime + 3600; // Attempting to set 1 hour after vesting starts
+      await expect(vestingMechanism.connect(owner).setInitialClaimTime(newInitialClaimTime))
+        .to.be.revertedWithCustomError(vestingMechanism, "InitialClaimTimeCanOnlyBeChangedBeforeItStarts");
+    });
+
+    it("Should revert if trying to set initial claim time to a non-positive value", async function () {
+      const newInitialClaimTime = 0;
+      await expect(vestingMechanism.connect(owner).setInitialClaimTime(newInitialClaimTime))
+        .to.be.revertedWithCustomError(vestingMechanism, "InitialClaimTimeMustBePositive");
+    });
+  });
+
   describe("Vesting Schedule:", function () {
+
+    it("should allow 100% TGE claim immediately for specific vesting schedule and revert on subsequent claims", async function () {
+      const vestingParams = await getVestingParamsFromAddress(addr6.address);
+      const initialClaimTime = await vestingMechanism.initialClaimTime();
+
+      // Ensure initial claim time can be set before it starts
+      await expect(vestingMechanism.connect(owner).setInitialClaimTime(initialClaimTime))
+        .not.to.be.revertedWithCustomError(vestingMechanism, "InitialClaimTimeCanOnlyBeChangedBeforeItStarts");
+
+      // Attempt to claim 100% TGE immediately
+      const transaction = await vestingMechanism.connect(addr6).release(vestingParams, proofs[addr6.address]);
+      await expect(transaction)
+        .to.emit(vestingMechanism, "TokensReleased");
+
+      // Check the total amount released is equal to the total amount since 100% TGE was set
+      const vestingDetails = await vestingMechanism.getVestingDetails(vestingParams);
+      expect(vestingDetails.amountReleased.toString()).to.equal(ethers.parseEther("1000").toString());
+
+      // Attempt to claim again should revert since 100% TGE was already claimed
+      await expect(vestingMechanism.connect(addr6).release(vestingParams, proofs[addr6.address]))
+        .to.be.reverted;
+    });
+
+    it("should not allow claiming before initialClaimTime", async function () {
+      const vestingParams = await getVestingParamsFromAddress(addr3.address);
+      const initialClaimTime = (await getNextDayTimestamp()) + 10; // Set initial claim time to one day in the future
+
+      // Ensure initial claim time can be set before it starts
+      await expect(vestingMechanism.connect(owner).setInitialClaimTime(initialClaimTime))
+        .not.to.be.revertedWithCustomError(vestingMechanism, "InitialClaimTimeCanOnlyBeChangedBeforeItStarts");
+
+      // Advance blockchain time to just before the initial claim time
+      await advanceTimeTo(initialClaimTime - 10); // Advance time to 1 second before the initial claim time
+
+      // Attempt to claim before the initial claim time
+      await expect(
+        vestingMechanism.connect(addr3).release(vestingParams, proofs[addr3.address])
+      ).to.be.revertedWithCustomError(vestingMechanism, "ReleaseTimeNotReached");
+    });
+
+    it("should allow claiming after initialClaimTime", async function () {
+      const vestingParams = await getVestingParamsFromAddress(addr3.address);
+      const initialClaimTime = (await getNextDayTimestamp()) + 10
+      await vestingMechanism.connect(owner).setInitialClaimTime(initialClaimTime);
+
+      // Increase blockchain time to after initialClaimTime
+      await advanceTimeTo(initialClaimTime + 1); // Advance time by 1 second past the initial claim time
+
+      // Attempt to claim after the initial claim time
+      await expect(
+        vestingMechanism.connect(addr3).release(vestingParams, proofs[addr3.address])
+      ).not.to.be.reverted;
+    });
 
     it("Should not allow token release before vesting start time", async function () {
       const vestingParams = await getVestingParamsFromAddress(addr3.address);
@@ -750,14 +827,15 @@ describe("VestingMechanism", function () {
     return rumToken;
   }
 
-  function prepareVestingEntries(owner, addr1, addr2, addr3, addr4, addr5) {
+  function prepareVestingEntries(owner, addr1, addr2, addr3, addr4, addr5, addr6) {
     return [
       createVestingEntry(owner.address, "1000", 0, 50, 90, 86400),
       createVestingEntry(addr1.address, "1000", 0, 50, 90, 86400),
       createVestingEntry(addr2.address, "1000", 0, 10, 90, 30*86400),
       createVestingEntry(addr3.address, "1000", 0, 0, 90, 86400),
       createVestingEntry(addr4.address, "1000", 30*86400, 0, 90, 86400),
-      createVestingEntry(addr5.address, "1000", 30*86400, 50, 90, 86400)
+      createVestingEntry(addr5.address, "1000", 30*86400, 50, 90, 86400),
+      createVestingEntry(addr6.address, "1000", 0, 100, 0, 86400)
     ];
   }
 
@@ -772,9 +850,9 @@ describe("VestingMechanism", function () {
     };
   }
 
-  async function deployVestingMechanism(adminAddress, tokenAddress, merkleRoot, startTime) {
+  async function deployVestingMechanism(adminAddress, tokenAddress, merkleRoot, startTime, initialClaimTime) {
     const VestingMechanismFactory = await ethers.getContractFactory("VestingMechanism");
-    return await VestingMechanismFactory.deploy(adminAddress, tokenAddress, merkleRoot, startTime);
+    return await VestingMechanismFactory.deploy(adminAddress, tokenAddress, merkleRoot, startTime, initialClaimTime);
   }
 
   async function getNextDayTimestamp() {
